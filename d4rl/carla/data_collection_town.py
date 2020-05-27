@@ -1,3 +1,13 @@
+#!/usr/bin/env python
+
+# Copyright (c) 2019 Computer Vision Center (CVC) at the Universitat Autonoma de
+# Barcelona (UAB).
+#
+# This work is licensed under the terms of the MIT license.
+# For a copy, see <https://opensource.org/licenses/MIT>.
+#
+# Modified by Rowan McAllister on 20 April 2020
+
 import argparse
 import datetime
 import glob
@@ -7,12 +17,6 @@ import sys
 import time
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
-import gym
-from gym import Env
-import gym.spaces as spaces
-
-#from . import proxy_env
-from d4rl.offline_env import OfflineEnv
 
 try:
     sys.path.append(glob.glob('../carla/dist/carla-*%d.%d-%s.egg' % (
@@ -42,11 +46,11 @@ try:
 except ImportError:
     import Queue as queue
 
-# This is CARLA agent
 from agents.navigation.agent import Agent, AgentState
 from agents.navigation.local_planner import LocalPlanner
 from agents.navigation.global_route_planner import GlobalRoutePlanner
 from agents.navigation.global_route_planner_dao import GlobalRoutePlannerDAO
+from agents.tools.misc import is_within_distance_ahead #, is_within_distance, compute_distance
 from agents.tools.misc import is_within_distance_ahead, compute_magnitude_angle
 
 def is_within_distance(target_location, current_location, orientation, max_distance, d_angle_th_up, d_angle_th_low=0):
@@ -89,13 +93,27 @@ def compute_distance(location_1, location_2):
     return norm
 
 
+class CustomGlobalRoutePlanner(GlobalRoutePlanner):
+    def __init__(self, dao):
+        super(CustomGlobalRoutePlanner, self).__init__(dao=dao)
+
+    def compute_distance(self, origin, destination):
+        node_list = super(CustomGlobalRoutePlanner, self)._path_search(origin=origin, destination=destination)
+        distance = 0.0
+        for idx in range(len(node_list) - 1):
+            distance += (super(CustomGlobalRoutePlanner, self)._distance_heuristic(node_list[idx], node_list[idx+1]))
+        # print ('Distance: ', distance)
+        return distance
+
 class CarlaSyncMode(object):
     """
     Context manager to synchronize output from different sensors. Synchronous
     mode is enabled as long as we are inside this context
+
         with CarlaSyncMode(world, sensors) as sync_mode:
             while True:
                 data = sync_mode.tick(timeout=1.0)
+
     """
 
     def __init__(self, world, *sensors, **kwargs):
@@ -138,6 +156,39 @@ class CarlaSyncMode(object):
             data = sensor_queue.get(timeout=timeout)
             if data.frame == self.frame:
                 return data
+
+
+def draw_image(surface, image, blend=False):
+    array = np.frombuffer(image.raw_data, dtype=np.dtype("uint8"))
+    array = np.reshape(array, (image.height, image.width, 4))
+    array = array[:, :, :3]
+    array = array[:, :, ::-1]
+    image_surface = pygame.surfarray.make_surface(array.swapaxes(0, 1))
+    if blend:
+        image_surface.set_alpha(100)
+    surface.blit(image_surface, (0, 0))
+
+
+def get_font():
+    fonts = [x for x in pygame.font.get_fonts()]
+    default_font = 'ubuntumono'
+    font = default_font if default_font in fonts else fonts[0]
+    font = pygame.font.match_font(font)
+    return pygame.font.Font(font, 14)
+
+
+def should_quit():
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            return True
+        elif event.type == pygame.KEYUP:
+            if event.key == pygame.K_ESCAPE:
+                return True
+    return False
+
+
+def clamp(value, minimum=0.0, maximum=100.0):
+    return max(minimum, min(value, maximum))
 
 
 class Sun(object):
@@ -218,28 +269,36 @@ class Weather(object):
     def __str__(self):
         return '%s %s' % (self._sun, self._storm)
 
-def clamp(value, minimum=0.0, maximum=100.0):
-    return max(minimum, min(value, maximum))
 
-## Now the actual env
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--vision_size', type=int, default=84)
+    parser.add_argument('--vision_fov', type=int, default=90)
+    parser.add_argument('--weather', default=False, action='store_true')
+    parser.add_argument('--frame_skip', type=int, default=1),
+    parser.add_argument('--steps', type=int, default=100000)
+    parser.add_argument('--multiagent', default=False, action='store_true'),
+    parser.add_argument('--lane', type=int, default=0)
+    parser.add_argument('--lights', default=False, action='store_true')
+    args = parser.parse_args()
+    return args
+
+
 class CarlaEnv(object):
-    """
-    CARLA agent, we will wrap this in a proxy env to get a gym env
-    """
-    def __init__(self, render=False, carla_port=2000, record=False, record_dir=None, args=None, record_vision=False, **kwargs):
-        self.render_display = render
-        self.record_display = record
-        print('[CarlaEnv] record_vision:', record_vision)
-        self.record_vision = record_vision
-        self.record_dir = record_dir
-        self.vision_size = args['vision_size']
-        self.vision_fov = args['vision_fov']
-        self.changing_weather_speed = float(args['weather'])
-        self.frame_skip = args['frame_skip']
-        self.max_episode_steps = args['steps']  # DMC uses this
-        self.multiagent = args['multiagent']
-        self.start_lane = args['lane']
-        self.follow_traffic_lights = args['lights']
+
+    def __init__(self, args):
+        self.render_display = False
+        self.record_display = False
+        self.record_vision = True
+        self.record_dir = None #'/nfs/kun1/users/aviralkumar/carla_data/'
+        self.vision_size = args.vision_size
+        self.vision_fov = args.vision_fov
+        self.changing_weather_speed = float(args.weather)
+        self.frame_skip = args.frame_skip
+        self.max_episode_steps = args.steps
+        self.multiagent = args.multiagent
+        self.start_lane = args.lane
+        self.follow_traffic_lights = args.lights
         if self.record_display:
             assert self.render_display
 
@@ -251,11 +310,15 @@ class CarlaEnv(object):
             self.font = get_font()
             self.clock = pygame.time.Clock()
 
-        self.client = carla.Client('localhost', carla_port)
+        self.client = carla.Client('localhost', 2000)
         self.client.set_timeout(2.0)
 
         self.world = self.client.get_world()
         self.map = self.world.get_map()
+
+        ## Define the route planner
+        self.route_planner_dao = GlobalRoutePlannerDAO(self.map, sampling_resolution=0.1) 
+        self.route_planner = CustomGlobalRoutePlanner(self.route_planner_dao)
 
         # tests specific to map 4:
         if self.start_lane and self.map.name != "Town04":
@@ -309,7 +372,8 @@ class CarlaEnv(object):
 
                 now = datetime.datetime.now()
                 self.record_dir += now.strftime("-%Y-%m-%d-%H-%M-%S")
-            os.mkdir(self.record_dir)
+            if not os.path.exists(self.record_dir):
+                os.mkdir(self.record_dir)
 
         if self.render_display:
             self.sync_mode = CarlaSyncMode(self.world, self.camera_display, self.camera_vision, fps=20)
@@ -322,65 +386,78 @@ class CarlaEnv(object):
         # dummy variables, to match deep mind control's APIs
         low = -1.0
         high = 1.0
-        
-        self.action_space = spaces.Box(low=np.array((low, low)), high=np.array((high, high)))
-
+        self.action_space = DotMap()
+        self.action_space.low.min = lambda: low
+        self.action_space.high.max = lambda: high
+        self.action_space.shape = [2]
         self.observation_space = DotMap()
         self.observation_space.shape = (3, self.vision_size, self.vision_size)
         self.observation_space.dtype = np.dtype(np.uint8)
         self.reward_range = None
         self.metadata = None
-        # self.action_space.sample = lambda: np.random.uniform(low=low, high=high, size=self.action_space.shape[0]).astype(np.float32)
-
-        self.horizon = self.max_episode_steps
-        self.image_shape = (3, self.vision_size, self.vision_size)
+        self.action_space.sample = lambda: np.random.uniform(low=low, high=high, size=self.action_space.shape[0]).astype(np.float32)
 
         # roaming carla agent
+        self.agent = None
         self.count = 0
         self.world.tick()
-        self.reset_init()
+        self.reset_init()  # creates self.agent
 
+        ## Initialize the route planner
+        self.route_planner.setup()
+
+        ## Collision detection
         self._proximity_threshold = 10.0
         self._traffic_light_threshold = 5.0
         self.actor_list = self.world.get_actors()
-        #for idx in range(len(self.actor_list)):
-        #    print (idx, self.actor_list[idx])
-
+        for idx in range(len(self.actor_list)):
+            print (idx, self.actor_list[idx])
         # import ipdb; ipdb.set_trace()
         self.vehicle_list = self.actor_list.filter("*vehicle*")
         self.lights_list = self.actor_list.filter("*traffic_light*")
         self.object_list = self.actor_list.filter("*traffic.*")
 
-        # roaming carla agent
-        # self.agent = None
-        # self.count = 0
-        # self.world.tick()
-        self.reset()  # creates self.agent
+        ## Initialize the route planner
+        self.route_planner.setup()
 
-    
+        ## The map is deterministic so for reward relabelling, we can
+        ## instantiate the environment object and then query the distance function
+        ## in the env, which directly uses this map_graph, and we need not save it.
+        self._map_graph = self.route_planner._graph
+
+        ## This is a dummy for the target location, we can make this an input
+        ## to the env in RL code.
+        self.target_location = carla.Location(x=-13.473097, y=134.311234, z=-0.010433)
+
+        ## Now reset the env once
+        self.reset()
+        
+        
     def reset_init(self):
         self.reset_vehicle()
         self.world.tick()
         self.reset_other_vehicles()
         self.world.tick()
+        self.agent = RoamingAgent(self.vehicle, follow_traffic_lights=self.follow_traffic_lights)
         self.count = 0
 
     def reset(self):
         # get obs:
         obs, _, _, _ = self.step()
         return obs
-    
+
     def reset_vehicle(self):
 
         if self.map.name == "Town04":
-            start_lane = -1 # np.random.choice([-1, -2, -3, -4])  # their positive values, not negative
-            start_x = 5.
+            start_lane = -1
+            start_x = 5.0
             vehicle_init_transform = carla.Transform(carla.Location(x=start_x, y=0, z=0.1), carla.Rotation(yaw=-90))
         else:
             init_transforms = self.world.get_map().get_spawn_points()
             vehicle_init_transform = random.choice(init_transforms)
-        
-        self.start_lane = start_lane
+
+        # TODO(aviral): start lane not defined for town, also for the town, we may not want to have
+        # the lane following reward, so it should be okay.
 
         if self.vehicle is None:  # then create the ego vehicle
             blueprint_library = self.world.get_blueprint_library()
@@ -390,7 +467,7 @@ class CarlaEnv(object):
         self.vehicle.set_transform(vehicle_init_transform)
         self.vehicle.set_velocity(carla.Vector3D())
         self.vehicle.set_angular_velocity(carla.Vector3D())
-    
+
     def reset_other_vehicles(self):
         if not self.multiagent:
             return
@@ -446,7 +523,10 @@ class CarlaEnv(object):
                 self.vehicles_list.append(response.actor_id)
 
         traffic_manager.global_percentage_speed_difference(30.0)
-    
+
+    def compute_action(self):
+        return self.agent.run_step()
+
     def step(self, action=None, traffic_light_color=""):
         rewards = []
         for _ in range(self.frame_skip):  # default 1
@@ -515,7 +595,7 @@ class CarlaEnv(object):
                 return (True, -1.0, target_vehicle)
 
         return (False, 0.0,  None)
-
+    
     def _is_light_red(self, vehicle):
         """
         Method to check if there is a red light affecting us. This version of
@@ -551,7 +631,7 @@ class CarlaEnv(object):
                     return (True, -0.1, traffic_light)
 
         return (False, 0.0, None)
-
+    
     def _get_trafficlight_trigger_location(self, traffic_light):  # pylint: disable=no-self-use
         """
         Calculates the yaw of the waypoint that represents the trigger volume of the traffic light
@@ -577,110 +657,25 @@ class CarlaEnv(object):
 
     def _get_collision_reward(self, vehicle):
         vehicle_hazard, reward, vehicle_id = self._is_vehicle_hazard(vehicle, self.vehicle_list)
-
-        # Check the lane ids
-        loc = vehicle.get_location() 
-        if loc is not None:
-            w = self.map.get_waypoint(loc)
-            if w is not None:
-                current_lane_id = w.lane_id
-                if current_lane_id not in [-1, 1]:
-                    #print ('Lane: ', current_lane_id, self.start_lane)
-                    vehicle_hazard = True
-                    reward = -1.0
-            else:
-                vehicle_hazard = True
-                reward = -1.0
-        else:
-            vehicle_hazard = True
-            reward = -1.0
-
-        #print ('vehicle: ', loc, current_lane_id, self.start_lane)
         return vehicle_hazard, reward
-
+    
     def _get_traffic_light_reward(self, vehicle):
         traffic_light_hazard, reward, traffic_light_id = self._is_light_red(vehicle)
         return traffic_light_hazard, 0.0
-
+    
     def _get_object_collided_reward(self, vehicle):
         object_hazard, reward, object_id = self._is_object_hazard(vehicle, self.object_list)
         return object_hazard, reward
-
-    def get_reward(self, vehicle):
-        # assume on highway
+    
+    def goal_reaching_reward(self, vehicle):
+        # Now we will write goal_reaching_rewards
         vehicle_location = vehicle.get_location()
-        vehicle_waypoint = self.map.get_waypoint(vehicle_location)
-        vehicle_xy = np.array([vehicle_location.x, vehicle_location.y])
-        vehicle_s = vehicle_waypoint.s
-        vehicle_velocity = vehicle.get_velocity()  # Vector3D
-        vehicle_velocity_xy = np.array([vehicle_velocity.x, vehicle_velocity.y])
-        # print ('Velocity: ', vehicle_velocity_xy)
-        speed = np.linalg.norm(vehicle_velocity_xy)
-        vehicle_waypoint_closest_to_road = \
-            self.map.get_waypoint(vehicle_location, project_to_road=True, lane_type=carla.LaneType.Driving)
-        road_id = vehicle_waypoint_closest_to_road.road_id
-        assert road_id is not None
-        goal_abs_lane_id = 1  # just for goal-following
-        lane_id_sign = int(np.sign(vehicle_waypoint_closest_to_road.lane_id))
-        assert lane_id_sign in [-1, 1]
-        goal_lane_id = goal_abs_lane_id * lane_id_sign
-        current_waypoint = self.map.get_waypoint(vehicle_location, project_to_road=False)
-        goal_waypoint = self.map.get_waypoint_xodr(road_id, goal_lane_id, vehicle_s)
+        target_location = self.target_location
 
-        # Check for valid goal waypoint
-        if goal_waypoint is None:
-            print ('goal waypoint is None...')
-            # try to fix, bit of a hack, with CARLA waypoint discretizations
-            carla_waypoint_discretization = 0.02  # meters
-            goal_waypoint = self.map.get_waypoint_xodr(road_id, goal_lane_id, vehicle_s - carla_waypoint_discretization)
-            if goal_waypoint is None:
-                goal_waypoint = self.map.get_waypoint_xodr(road_id, goal_lane_id, vehicle_s + carla_waypoint_discretization)
+        # This is the distance computation
+        dist = self.route_planner.compute_distance(vehicle_location, target_location)
 
-        # set distance to 100 if the waypoint is off the road
-        if goal_waypoint is None:
-            print("Episode fail: goal waypoint is off the road! (frame %d)" % self.count)
-            done, dist, vel_s = True, 100., 0.
-        else:
-            goal_location = goal_waypoint.transform.location
-            goal_xy = np.array([goal_location.x, goal_location.y])
-            # dist = np.linalg.norm(vehicle_xy - goal_xy)
-            dists = []
-            for abs_lane_id in [1, 2, 3, 4]:
-                lane_id_ = abs_lane_id * lane_id_sign
-                wp = self.map.get_waypoint_xodr(road_id, lane_id_, vehicle_s)
-                if wp is not None:  # lane 4 might not exist where the highway has a turnoff
-                    loc = wp.transform.location
-                    xy = np.array([loc.x, loc.y])
-                    dists.append(np.linalg.norm(vehicle_xy - xy))
-            if dists:
-                dist = min(dists)  # just try to get to the center of one of the lanes
-            else:
-                dist = 0.
-            next_goal_waypoint = goal_waypoint.next(0.1)  # waypoints are ever 0.02 meters
-            if len(next_goal_waypoint) != 1:
-                print('warning: {} waypoints (not 1)'.format(len(next_goal_waypoint)))
-            if len(next_goal_waypoint) == 0:
-                print("Episode done: no more waypoints left. (frame %d)" % self.count)
-                done, vel_s = True, 0.
-            else:
-                location_ahead = next_goal_waypoint[0].transform.location
-                highway_vector = np.array([location_ahead.x, location_ahead.y]) - goal_xy
-                highway_unit_vector = np.array(highway_vector) / np.linalg.norm(highway_vector)
-                vel_s = np.dot(vehicle_velocity_xy, highway_unit_vector)
-                done = False
-
-        # not algorithm's fault, but the simulator sometimes throws the car in the air wierdly
-        # usually in initial few frames, which can be ignored
-        if vehicle_velocity.z > 1. and self.count < 20:
-            print("Episode done: vertical velocity too high ({}), usually a simulator glitch (frame {})".format(vehicle_velocity.z, self.count))
-            done = True
-        if vehicle_location.z > 0.5 and self.count < 20:
-            print("Episode done: vertical velocity too high ({}), usually a simulator glitch (frame {})".format(vehicle_location.z, self.count))
-            done = True
-
-        ## Add rewards for collision and optionally traffic lights
-        vehicle_location = vehicle.get_location()
-        base_reward = vel_s
+        base_reward = -1.0 * dist
         collided_done, collision_reward = self._get_collision_reward(vehicle)
         traffic_light_done, traffic_light_reward = self._get_traffic_light_reward(vehicle)
         object_collided_done, object_collided_reward = self._get_object_collided_reward(vehicle)
@@ -694,29 +689,27 @@ class CarlaEnv(object):
         done_dict['collided_done'] = collided_done
         done_dict['traffic_light_done'] = traffic_light_done
         done_dict['object_collided_done'] = object_collided_done
-        done_dict['base_done'] = done
-        # print ('Reward: ', reward_dict, vel_s)
         return total_reward, reward_dict, done_dict
-    
+
     def _simulator_step(self, action, traffic_light_color):
-        
+
+        if self.render_display:
+            if should_quit():
+                return
+            self.clock.tick()
+
         if action is None:
             throttle, steer, brake = 0., 0., 0.
         else:
-            steer = float(action[1])
-            throttle_brake = float(action[0])
-
-            if throttle_brake >= 0.0:
-                throttle = throttle_brake
-                brake = 0.0
-            else:
-                throttle = 0.0
-                brake = -throttle_brake
+            throttle, steer, brake = action.throttle, action.steer, action.brake
+            # throttle = clamp(throttle, minimum=0.005, maximum=0.995) + np.random.uniform(low=-0.003, high=0.003)
+            # steer = clamp(steer, minimum=-0.995, maximum=0.995) + np.random.uniform(low=-0.003, high=0.003)
+            # brake = clamp(brake, minimum=0.005, maximum=0.995) + np.random.uniform(low=-0.003, high=0.003)
 
             vehicle_control = carla.VehicleControl(
-                throttle=float(throttle),
-                steer=float(steer), 
-                brake=float(brake),
+                throttle=throttle,  # [0,1]
+                steer=steer,  # [-1,1]
+                brake=brake,  # [0,1]
                 hand_brake=False,
                 reverse=False,
                 manual_gear_shift=False
@@ -734,6 +727,7 @@ class CarlaEnv(object):
 
         # Draw the display.
         if self.render_display:
+            draw_image(self.render_display, display_image)
             self.render_display.blit(self.font.render('Frame %d' % self.count, True, (255, 255, 255)), (8, 10))
             self.render_display.blit(self.font.render('Control: %5.2f thottle, %5.2f steer, %5.2f brake' % (throttle, steer, brake), True, (255, 255, 255)), (8, 28))
             self.render_display.blit(self.font.render('Traffic light: ' + traffic_light_color, True, (255, 255, 255)), (8, 46))
@@ -745,6 +739,8 @@ class CarlaEnv(object):
         bgr = bgra[:, :, :3]  # BGR format (84 x 84 x 3)
         rgb = np.flip(bgr, axis=2)  # RGB format (84 x 84 x 3)
 
+        reward, reward_dict, done_dict = self.goal_reaching_reward(self.vehicle)
+
         if self.render_display and self.record_display:
             image_name = os.path.join(self.record_dir, "display%08d.jpg" % self.count)
             pygame.image.save(self.render_display, image_name)
@@ -752,32 +748,100 @@ class CarlaEnv(object):
             # ffmpeg -r 20 -pattern_type glob -i 'display*.jpg' carla.mp4
         if self.record_vision:
             image_name = os.path.join(self.record_dir, "vision%08d.png" % self.count)
-            print('savedimg:', image_name)
             im = Image.fromarray(rgb)
-
-            # add any meta data you like into the image before we save it:
+            # add any eta data you like into the image before we save it:
             metadata = PngInfo()
-            metadata.add_text("throttle", str(throttle))
-            metadata.add_text("steer", str(steer))
-            metadata.add_text("brake", str(brake))
-            metadata.add_text("lights", traffic_light_color)
+            # control
+            metadata.add_text("control_throttle", str(throttle))
+            metadata.add_text("control_steer", str(steer))
+            metadata.add_text("control_brake", str(brake))
+            metadata.add_text("control_repeat", str(self.frame_skip))
+            # acceleration
+            acceleration = self.vehicle.get_acceleration()
+            metadata.add_text("acceleration_x", str(acceleration.x))
+            metadata.add_text("acceleration_y", str(acceleration.y))
+            metadata.add_text("acceleration_z", str(acceleration.z))
+            # angular velocity
+            angular_velocity = self.vehicle.get_angular_velocity()
+            metadata.add_text("angular_velocity_x", str(angular_velocity.x))
+            metadata.add_text("angular_velocity_y", str(angular_velocity.y))
+            metadata.add_text("angular_velocity_z", str(angular_velocity.z))
+            # location
+            location = self.vehicle.get_location()
+            metadata.add_text("location_x", str(location.x))
+            metadata.add_text("location_y", str(location.y))
+            metadata.add_text("location_z", str(location.z))
+            # rotation
+            rotation = self.vehicle.get_transform().rotation
+            metadata.add_text("rotation_pitch", str(rotation.pitch))
+            metadata.add_text("rotation_yaw", str(rotation.yaw))
+            metadata.add_text("rotation_roll", str(rotation.roll))
+            forward_vector = rotation.get_forward_vector()
+            metadata.add_text("forward_vector_x", str(forward_vector.x))
+            metadata.add_text("forward_vector_y", str(forward_vector.y))
+            metadata.add_text("forward_vector_z", str(forward_vector.z))
+            # velocity
+            velocity = self.vehicle.get_velocity()
+            metadata.add_text("velocity_x", str(velocity.x))
+            metadata.add_text("velocity_y", str(velocity.y))
+            metadata.add_text("velocity_z", str(velocity.z))
+            # weather
+            metadata.add_text("weather_cloudiness ", str(self.weather.weather.cloudiness))
+            metadata.add_text("weather_precipitation", str(self.weather.weather.precipitation))
+            metadata.add_text("weather_precipitation_deposits", str(self.weather.weather.precipitation_deposits))
+            metadata.add_text("weather_wind_intensity", str(self.weather.weather.wind_intensity))
+            metadata.add_text("weather_fog_density", str(self.weather.weather.fog_density))
+            metadata.add_text("weather_wetness", str(self.weather.weather.wetness))
+            metadata.add_text("weather_sun_azimuth_angle", str(self.weather.weather.sun_azimuth_angle))
+            # settings
+            metadata.add_text("settings_map", self.map.name)
+            metadata.add_text("settings_vision_size", str(self.vision_size))
+            metadata.add_text("settings_vision_fov", str(self.vision_fov))
+            metadata.add_text("settings_changing_weather_speed", str(self.changing_weather_speed))
+            metadata.add_text("settings_multiagent", str(self.multiagent))
+            # traffic lights
+            metadata.add_text("traffic_lights_color", "UNLABELED")
+            metadata.add_text("reward", str(reward))
+
+            ## Add in reward dict
+            for key in reward_dict:
+                metadata.add_text("reward_" + str(key), str(reward_dict[key]))
+            
+            for key in done_dict:
+                metadata.add_text("done_" + str(key), str(done_dict[key]))
+
+            ## Save the target location as well
+            metadata.add_text('target_location_x', str(self.target_location.x))
+            metadata.add_text('target_location_y', str(self.target_location.y))
+            metadata.add_text('target_location_z', str(self.target_location.z))
+
             im.save(image_name, "PNG", pnginfo=metadata)
 
+            # # To read these images later, you can run something like this:
+            # from PIL.PngImagePlugin import PngImageFile
+            # im = PngImageFile("vision00001234.png")
+            # throttle = float(im.text['throttle'])  # range [0, 1]
+            # steer = float(im.text['steer'])  # range [-1, 1]
+            # brake = float(im.text['brake'])  # range [0, 1]
+            # lights = im.text['lights']  # traffic lights color, [NONE, JUNCTION, RED, YELLOW, GREEN]
         self.count += 1
 
-        next_obs = rgb 
-        
-        done = False
+        next_obs = rgb  # 84 x 84 x 3
+        # # To inspect images, run:
+        # import pdb; pdb.set_trace()
+        # import matplotlib.pyplot as plt
+        # plt.imshow(next_obs)
+        # plt.show()
+
+        done = False #self.count >= self.max_episode_steps
         if done:
             print("Episode success: I've reached the episode horizon ({}).".format(self.max_episode_steps))
-        reward, reward_dict, done_dict = self.get_reward(self.vehicle)
+        # print ('reward: ', reward)
         info = reward_dict
         info.update(done_dict)
         done = False
         for key in done_dict:
             done = (done or done_dict[key])
-        if done:
-            print('done_dict:', done_dict)
         return next_obs, reward, done, info
 
     def finish(self):
@@ -791,85 +855,177 @@ class CarlaEnv(object):
         print('done.')
 
 
-class CarlaObsDictEnv(OfflineEnv):
-    def __init__(self, carla_args=None, carla_port=2000, render_images=False, **kwargs):
-        print('[CarlaObsDictEnv] render_images:', render_images)
-        self._wrapped_env = CarlaEnv(carla_port=carla_port, args=carla_args, record_vision=render_images)
-        self.action_space = self._wrapped_env.action_space
-        self.observation_space = self._wrapped_env.observation_space
+class LocalPlannerModified(LocalPlanner):
 
-        self.observation_size = int(np.prod(self._wrapped_env.observation_space.shape))
+    def __del__(self):
+        pass  # otherwise it deletes our vehicle object
 
-        self.observation_space = spaces.Dict({
-            'image':spaces.Box(low=np.array([0.0] * self.observation_size), high=np.array([256.0,] * self.observation_size))
-        })
-        print (self.observation_space)
-        super(CarlaObsDictEnv, self).__init__(**kwargs)
+    def run_step(self):
+        return super().run_step(debug=False)  # otherwise by default shows waypoints, that interfere with our camera
 
-    @property
-    def wrapped_env(self):
-        return self._wrapped_env
 
-    def reset(self, **kwargs):
-        self._wrapped_env.reset_init()
-        obs = (self._wrapped_env.reset(**kwargs))
-        obs_dict = dict()
-        # Also normalize obs
-        obs_dict['image'] = (obs.astype(np.float32) / 255.0).flatten()
-        return obs_dict
+class RoamingAgent(Agent):
+    """
+    RoamingAgent implements a basic agent that navigates scenes making random
+    choices when facing an intersection.
 
-    def step(self, action):
-        #print ('Action: ', action)
-        next_obs, reward, done, info = self._wrapped_env.step(action)
-        next_obs_dict = dict()
-        next_obs_dict['image'] = (next_obs.astype(np.float32) / 255.0).flatten()
-        # print ('Reward: ', reward)
-        # print ('Done dict: ', info)
-        return next_obs_dict, reward, done, info
+    This agent respects traffic lights and other vehicles.
+    """
 
-    def render(self, *args, **kwargs):
-        return self._wrapped_env.render(*args, **kwargs)
-
-    @property
-    def horizon(self):
-        return self._wrapped_env.horizon
-
-    def terminate(self):
-        if hasattr(self.wrapped_env, "terminate"):
-            self._wrapped_env.terminate()
-
-    def __getattr__(self, attr):
-        if attr == '_wrapped_env':
-            raise AttributeError()
-        return getattr(self._wrapped_env, attr)
-
-    def __getstate__(self):
+    def __init__(self, vehicle, follow_traffic_lights=True):
         """
-        This is useful to override in case the wrapped env has some funky
-        __getstate__ that doesn't play well with overriding __getattr__.
 
-        The main problematic case is/was gym's EzPickle serialization scheme.
-        :return:
+        :param vehicle: actor to apply to local planner logic onto
         """
-        return self.__dict__
+        super(RoamingAgent, self).__init__(vehicle)
+        self._proximity_threshold = 10.0  # meters
+        self._state = AgentState.NAVIGATING
+        self._local_planner = LocalPlannerModified(self._vehicle)
+        self._follow_traffic_lights = follow_traffic_lights
 
-    def __setstate__(self, state):
-        self.__dict__.update(state)
+    def run_step(self):
+        """
+        Execute one step of navigation.
+        :return: carla.VehicleControl
+        """
 
-    def __str__(self):
-        return '{}({})'.format(type(self).__name__, self.wrapped_env)
+        # is there an obstacle in front of us?
+        hazard_detected = False
+
+        # retrieve relevant elements for safe navigation, i.e.: traffic lights and other vehicles
+        actor_list = self._world.get_actors()
+        vehicle_list = actor_list.filter("*vehicle*")
+        lights_list = actor_list.filter("*traffic_light*")
+
+        # check possible obstacles
+        vehicle_state, vehicle = self._is_vehicle_hazard(vehicle_list)
+        if vehicle_state:
+
+            self._state = AgentState.BLOCKED_BY_VEHICLE
+            hazard_detected = True
+
+        # check for the state of the traffic lights
+        traffic_light_color = self._is_light_red(lights_list)
+        if traffic_light_color == 'RED' and self._follow_traffic_lights:
+            self._state = AgentState.BLOCKED_RED_LIGHT
+            hazard_detected = True
+
+        if hazard_detected:
+            control = self.emergency_stop()
+        else:
+            self._state = AgentState.NAVIGATING
+            # standard local planner behavior
+            control = self._local_planner.run_step()
+
+        return control, traffic_light_color
+
+    # override case class
+    def _is_light_red_europe_style(self, lights_list):
+        """
+        This method is specialized to check European style traffic lights.
+        Only suitable for Towns 03 -- 07.
+        """
+        ego_vehicle_location = self._vehicle.get_location()
+        ego_vehicle_waypoint = self._map.get_waypoint(ego_vehicle_location)
+
+        traffic_light_color = "NONE"  # default, if no traffic lights are seen
+
+        for traffic_light in lights_list:
+            object_waypoint = self._map.get_waypoint(traffic_light.get_location())
+            if object_waypoint.road_id != ego_vehicle_waypoint.road_id or \
+                    object_waypoint.lane_id != ego_vehicle_waypoint.lane_id:
+                continue
+
+            if is_within_distance_ahead(traffic_light.get_transform(),
+                                        self._vehicle.get_transform(),
+                                        self._proximity_threshold):
+                if traffic_light.state == carla.TrafficLightState.Red:
+                    return "RED"
+                elif traffic_light.state == carla.TrafficLightState.Yellow:
+                    traffic_light_color = "YELLOW"
+                elif traffic_light.state == carla.TrafficLightState.Green:
+                    if traffic_light_color is not "YELLOW":  # (more severe)
+                        traffic_light_color = "GREEN"
+                else:
+                    import pdb; pdb.set_trace()
+                    # investigate https://carla.readthedocs.io/en/latest/python_api/#carlatrafficlightstate
+
+        return traffic_light_color
+
+    # override case class
+    def _is_light_red_us_style(self, lights_list, debug=False):
+        ego_vehicle_location = self._vehicle.get_location()
+        ego_vehicle_waypoint = self._map.get_waypoint(ego_vehicle_location)
+
+        traffic_light_color = "NONE"  # default, if no traffic lights are seen
+
+        if ego_vehicle_waypoint.is_junction:
+            # It is too late. Do not block the intersection! Keep going!
+            return "JUNCTION"
+
+        if self._local_planner.target_waypoint is not None:
+            if self._local_planner.target_waypoint.is_junction:
+                min_angle = 180.0
+                sel_magnitude = 0.0
+                sel_traffic_light = None
+                for traffic_light in lights_list:
+                    loc = traffic_light.get_location()
+                    magnitude, angle = compute_magnitude_angle(loc,
+                                                               ego_vehicle_location,
+                                                               self._vehicle.get_transform().rotation.yaw)
+                    if magnitude < 60.0 and angle < min(25.0, min_angle):
+                        sel_magnitude = magnitude
+                        sel_traffic_light = traffic_light
+                        min_angle = angle
+
+                if sel_traffic_light is not None:
+                    if debug:
+                        print('=== Magnitude = {} | Angle = {} | ID = {}'.format(
+                            sel_magnitude, min_angle, sel_traffic_light.id))
+
+                    if self._last_traffic_light is None:
+                        self._last_traffic_light = sel_traffic_light
+
+                    if self._last_traffic_light.state == carla.TrafficLightState.Red:
+                        return "RED"
+                    elif self._last_traffic_light.state == carla.TrafficLightState.Yellow:
+                        traffic_light_color = "YELLOW"
+                    elif self._last_traffic_light.state == carla.TrafficLightState.Green:
+                        if traffic_light_color is not "YELLOW":  # (more severe)
+                            traffic_light_color = "GREEN"
+                    else:
+                        import pdb; pdb.set_trace()
+                        # investigate https://carla.readthedocs.io/en/latest/python_api/#carlatrafficlightstate
+                else:
+                    self._last_traffic_light = None
+
+        return traffic_light_color
+
 
 if __name__ == '__main__':
-    variant = dict()
-    variant['vision_size'] = 48
-    variant['vision_fov'] = 48
-    variant['weather'] = False
-    variant['frame_skip'] = 1
-    variant['steps'] = 100000
-    variant['multiagent'] = False
-    variant['lane'] = 0
-    variant['lights'] = False
-    variant['record_dir'] = None
 
-    env = CarlaEnv(args=variant)
-    carla_gym_env = proxy_env.ProxyEnv(env)
+    # example call:
+    # ./PythonAPI/util/config.py --map Town01 --delta-seconds 0.05
+    # python PythonAPI/carla/agents/navigation/data_collection_agent.py --vision_size 256 --vision_fov 90 --steps 10000 --weather --lights
+
+    args = parse_args()
+    env = CarlaEnv(args)
+
+    curr_steps = 0
+    try:
+        done = False
+        while not done:
+            curr_steps += 1 
+            action, traffic_light_color = env.compute_action()
+            next_obs, reward, done, info = env.step(action, traffic_light_color)
+            print ('Reward: ', reward, 'Done: ', done, 'Location: ', env.vehicle.get_location())
+            if done:
+                # env.reset_init()
+                # env.reset()
+                done = False
+            
+            if curr_steps % 5000 == 4999:
+                env.reset_init()
+                env.reset()
+    finally:
+        env.finish()
