@@ -8,6 +8,7 @@ setup(
                       'numpy', 
                       'mujoco_py', 
                       'h5py', 
+                      #'adept_envs @ git+git://github.com/justinjfu/relay-policy-learning@setup#egg=adept_envs\&subdirectory=adept_envs',
                       'mjrl @ git+git://github.com/aravindr93/mjrl@master#egg=mjrl'],
     packages=find_packages(),
 )

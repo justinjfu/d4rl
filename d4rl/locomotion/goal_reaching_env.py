@@ -25,6 +25,9 @@ class GoalReachingEnv(object):
     # This is the reward type fed as input to the goal confitioned policy
     self.reward_type = reward_type
 
+  def get_target(self):
+      return self.target_goal
+
   def _get_obs(self):
     base_obs = self.BASE_ENV._get_obs(self)
     goal_direction = self._goal - self.get_xy()
