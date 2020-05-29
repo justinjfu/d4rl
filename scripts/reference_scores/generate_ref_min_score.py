@@ -3,7 +3,8 @@ Generate "minimum" reference scores by averaging the score for a random
 policy over 100 episodes.
 """
 import d4rl
-import d4rl.flow
+#import d4rl.flow
+import d4rl.carla
 import argparse 
 import gym
 import numpy as np
@@ -30,6 +31,7 @@ def main():
             if done:
                 break
         ravg.append(returns)
+        print('n:',n, returns, ' mean:',np.mean(ravg))
     print('%s Average returns (%d ep): %f' % (args.env_name, args.num_episodes, np.mean(ravg)))
 
 if __name__ == "__main__":

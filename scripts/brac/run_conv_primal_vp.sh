@@ -13,9 +13,7 @@
 # limitations under the License.
 
 #!/bin/bash
-ALPHA=1.0
-PLR=3e-05
-VALUE_PENALTY=False
+VALUE_PENALTY=True
 DIVERGENCE=kl
 # ENV=walker2d-medium-v0
 ENV=carla-lane-v0
@@ -33,7 +31,8 @@ python train_offline.py \
   --n_train=10000 \
   --model_arch=1 \
   --opt_params=1 \
-  --value_penalty=0 \
+  --value_penalty=1 \
+  --alpha=0.3 \
   --b_ckpt=$B_CKPT \
   #--gin_bindings="brac_primal_agent.Agent.behavior_ckpt_file='$B_CKPT'" \
   #--gin_bindings="brac_primal_agent.Agent.alpha=$ALPHA" \

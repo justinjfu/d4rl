@@ -129,6 +129,7 @@ def train_eval_offline(
     update_freq=1,
     update_rate=0.005,
     discount=0.99,
+    alpha=1.0,
     ):
   """Training a policy with a fixed dataset."""
   # Create tf_env to get specs.
@@ -178,6 +179,7 @@ def train_eval_offline(
   if 'brac_primal' in agent_module.__name__:
       my_agent_arg_dict['behavior_ckpt_file'] = behavior_ckpt_file
       my_agent_arg_dict['value_penalty'] = value_penalty
+      my_agent_arg_dict['alpha'] = alpha
   print('agent_args:', my_agent_arg_dict)
   #agent = agent_module.Agent(**vars(agent_args))
   agent = agent_module.Agent(**my_agent_arg_dict)

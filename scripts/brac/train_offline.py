@@ -59,6 +59,7 @@ flags.DEFINE_integer('save_freq', 1000, '')
 flags.DEFINE_integer('batch_size', 256, '')
 flags.DEFINE_string('b_ckpt', 'placeholder', '')
 flags.DEFINE_integer('value_penalty', 0, '')
+flags.DEFINE_float('alpha', 1.0, '')
 flags.DEFINE_multi_string('gin_file', None, 'Paths to the gin-config files.')
 flags.DEFINE_multi_string('gin_bindings', None, 'Gin binding parameters.')
 
@@ -99,8 +100,6 @@ def main(_):
     opt_params = (('adam', 1e-3), ('adam', 3e-5), ('adam', 1e-5))
   elif FLAGS.opt_params == 2:
     opt_params = (('adam', 1e-3), ('adam', 3e-4), ('adam', 1e-5))
-  elif FLAGS.opt_params == 3:
-    opt_params = (('adam', 0e-3), ('adam', 0e-4), ('adam', 0e-5))
   else:
       raise ValueError()
 
@@ -117,7 +116,8 @@ def main(_):
       optimizers=opt_params,
       value_penalty=bool(FLAGS.value_penalty),
       behavior_ckpt_file=FLAGS.b_ckpt,
-      save_freq=FLAGS.save_freq
+      save_freq=FLAGS.save_freq,
+      alpha=FLAGS.alpha
       )
 
   results_file = os.path.join(log_dir, 'results.npy')

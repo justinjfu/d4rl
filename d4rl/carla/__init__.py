@@ -8,7 +8,7 @@ register(
     entry_point='d4rl.carla:CarlaObsEnv',
     max_episode_steps=250,
     kwargs={
-        'ref_min_score': 7.901258360189125, 
+        'ref_min_score': -0.8503839912088142,
         #147.4916833225875 - random, no perp penalty
         'ref_max_score': 1253.3230534670868, # 250 steps
         # 632.3039350495891 - avg gent [0.33, 0]
