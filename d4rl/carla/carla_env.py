@@ -363,11 +363,21 @@ class CarlaEnv(object):
         self.world.tick()
         self.reset_other_vehicles()
         self.world.tick()
+
+        #
+
         self.count = 0
 
     def reset(self):
+        self.reset_vehicle()
+        self.world.tick()
+        self.reset_other_vehicles()
+        self.world.tick()
+        self.count = 0
+
         # get obs:
-        obs, _, _, _ = self.step()
+        for _ in range(5):
+            obs, _, _, _ = self.step()
         return obs
     
     def reset_vehicle(self):
@@ -448,6 +458,7 @@ class CarlaEnv(object):
         traffic_manager.global_percentage_speed_difference(30.0)
     
     def step(self, action=None, traffic_light_color=""):
+        """
         rewards = []
         for _ in range(self.frame_skip):  # default 1
             next_obs, reward, done, info = self._simulator_step(action, traffic_light_color)
@@ -455,6 +466,8 @@ class CarlaEnv(object):
             if done:
                 break
         return next_obs, np.mean(rewards), done, info
+        """
+        return self._simulator_step(action, traffic_light_color)
     
     def _is_vehicle_hazard(self, vehicle, vehicle_list):
         """
@@ -661,12 +674,20 @@ class CarlaEnv(object):
                 print('warning: {} waypoints (not 1)'.format(len(next_goal_waypoint)))
             if len(next_goal_waypoint) == 0:
                 print("Episode done: no more waypoints left. (frame %d)" % self.count)
-                done, vel_s = True, 0.
+                done, vel_s, vel_perp = True, 0., 0.
             else:
                 location_ahead = next_goal_waypoint[0].transform.location
                 highway_vector = np.array([location_ahead.x, location_ahead.y]) - goal_xy
                 highway_unit_vector = np.array(highway_vector) / np.linalg.norm(highway_vector)
                 vel_s = np.dot(vehicle_velocity_xy, highway_unit_vector)
+
+                unit_velocity = vehicle_velocity_xy / (np.linalg.norm(vehicle_velocity_xy) + 1e-8)
+                angle = np.arccos(np.clip(np.dot(unit_velocity, highway_unit_vector), -1.0, 1.0))
+                #vel_forward = np.linalg.norm(vehicle_velocity_xy) * np.cos(angle)
+                vel_perp = np.linalg.norm(vehicle_velocity_xy) * np.sin(angle)
+                #print('R:', np.clip(vel_s-5*vel_perp, -5.0, 5.0), 'vel_s:', vel_s, 'vel_perp:', vel_perp)
+                #import pdb; pdb.set_trace()
+
                 done = False
 
         # not algorithm's fault, but the simulator sometimes throws the car in the air wierdly
@@ -680,7 +701,7 @@ class CarlaEnv(object):
 
         ## Add rewards for collision and optionally traffic lights
         vehicle_location = vehicle.get_location()
-        base_reward = vel_s
+        base_reward = np.clip(vel_s - 5*vel_perp, -5.0, 5.0)
         collided_done, collision_reward = self._get_collision_reward(vehicle)
         traffic_light_done, traffic_light_reward = self._get_traffic_light_reward(vehicle)
         object_collided_done, object_collided_reward = self._get_object_collided_reward(vehicle)
@@ -777,7 +798,7 @@ class CarlaEnv(object):
         for key in done_dict:
             done = (done or done_dict[key])
         if done:
-            print('done_dict:', done_dict)
+            print('done_dict:', done_dict, 'r:', reward)
         return next_obs, reward, done, info
 
     def finish(self):
@@ -823,6 +844,73 @@ class CarlaObsDictEnv(OfflineEnv):
         next_obs, reward, done, info = self._wrapped_env.step(action)
         next_obs_dict = dict()
         next_obs_dict['image'] = (next_obs.astype(np.float32) / 255.0).flatten()
+        # print ('Reward: ', reward)
+        # print ('Done dict: ', info)
+        return next_obs_dict, reward, done, info
+
+    def render(self, *args, **kwargs):
+        return self._wrapped_env.render(*args, **kwargs)
+
+    @property
+    def horizon(self):
+        return self._wrapped_env.horizon
+
+    def terminate(self):
+        if hasattr(self.wrapped_env, "terminate"):
+            self._wrapped_env.terminate()
+
+    def __getattr__(self, attr):
+        if attr == '_wrapped_env':
+            raise AttributeError()
+        return getattr(self._wrapped_env, attr)
+
+    def __getstate__(self):
+        """
+        This is useful to override in case the wrapped env has some funky
+        __getstate__ that doesn't play well with overriding __getattr__.
+
+        The main problematic case is/was gym's EzPickle serialization scheme.
+        :return:
+        """
+        return self.__dict__
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+
+    def __str__(self):
+        return '{}({})'.format(type(self).__name__, self.wrapped_env)
+
+
+class CarlaObsEnv(OfflineEnv):
+    def __init__(self, carla_args=None, carla_port=2000, render_images=False, **kwargs):
+        self._wrapped_env = CarlaEnv(carla_port=carla_port, args=carla_args, record_vision=render_images)
+        self.action_space = self._wrapped_env.action_space
+        self.observation_space = self._wrapped_env.observation_space
+        self.observation_size = int(np.prod(self._wrapped_env.observation_space.shape))
+        self.observation_space = spaces.Box(low=np.array([0.0] * self.observation_size), high=np.array([256.0,] * self.observation_size))
+        #self.observation_space = spaces.Dict({
+        #    'image':spaces.Box(low=np.array([0.0] * self.observation_size), high=np.array([256.0,] * self.observation_size))
+        #})
+        super(CarlaObsEnv, self).__init__(**kwargs)
+
+    @property
+    def wrapped_env(self):
+        return self._wrapped_env
+
+    def reset(self, **kwargs):
+        self._wrapped_env.reset_init()
+        obs = (self._wrapped_env.reset(**kwargs))
+        obs_dict = dict()
+        # Also normalize obs
+        obs_dict = (obs.astype(np.float32) / 255.0).flatten()
+        return obs_dict
+
+    def step(self, action):
+        #print ('Action: ', action)
+        next_obs, reward, done, info = self._wrapped_env.step(action)
+        #next_obs_dict = dict()
+        #next_obs_dict['image'] = (next_obs.astype(np.float32) / 255.0).flatten()
+        next_obs_dict = (next_obs.astype(np.float32) / 255.0).flatten()
         # print ('Reward: ', reward)
         # print ('Done dict: ', info)
         return next_obs_dict, reward, done, info

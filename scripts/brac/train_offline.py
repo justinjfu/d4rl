@@ -29,7 +29,7 @@ import gin
 import gym
 import numpy as np
 import d4rl
-import d4rl.flow
+import d4rl.carla
 import tensorflow as tf0
 import tensorflow.compat.v1 as tf
 
@@ -54,8 +54,9 @@ flags.DEFINE_integer('total_train_steps', int(5e5), '')
 flags.DEFINE_integer('n_eval_episodes', 20, '')
 flags.DEFINE_integer('n_train', int(1e6), '')
 flags.DEFINE_integer('model_arch', 0, '')
-flags.DEFINE_integer('save_freq', 1000, '')
 flags.DEFINE_integer('opt_params', 0, '')
+flags.DEFINE_integer('save_freq', 1000, '')
+flags.DEFINE_integer('batch_size', 256, '')
 flags.DEFINE_string('b_ckpt', 'placeholder', '')
 flags.DEFINE_integer('value_penalty', 0, '')
 flags.DEFINE_multi_string('gin_file', None, 'Paths to the gin-config files.')
@@ -65,6 +66,7 @@ FLAGS = flags.FLAGS
 
 
 def main(_):
+  print('Running env:', FLAGS.env_name)
   logging.set_verbosity(logging.INFO)
   gin.parse_config_files_and_bindings(FLAGS.gin_file, FLAGS.gin_bindings)
 
@@ -110,6 +112,7 @@ def main(_):
       n_train=FLAGS.n_train,
       total_train_steps=FLAGS.total_train_steps,
       n_eval_episodes=FLAGS.n_eval_episodes,
+      batch_size=FLAGS.batch_size,
       model_params=model_arch,
       optimizers=opt_params,
       value_penalty=bool(FLAGS.value_penalty),

@@ -41,11 +41,17 @@ from tf_agents.environments import tf_py_environment
 from tf_agents.environments import gym_wrapper
 
 
-def get_offline_data(tf_env):
+def get_offline_data(tf_env, n_train=int(1e6)):
   gym_env = tf_env.pyenv.envs[0]
   #offline_dataset = gym_env.unwrapped.get_dataset()
   offline_dataset = gym_env.get_dataset()
+  #CARLA test
+  for k in offline_dataset:
+      offline_dataset[k] = offline_dataset[k][:n_train]
+
   dataset_size = len(offline_dataset['observations'])
+
+
   tf_dataset = dataset.Dataset(
       tf_env.observation_spec(),
       tf_env.action_spec(),
@@ -139,7 +145,7 @@ def train_eval_offline(
   action_spec = tf_env.action_spec()
 
   # Prepare data.
-  full_data = get_offline_data(tf_env)
+  full_data = get_offline_data(tf_env, n_train)
 
   # Split data.
   n_train = min(n_train, full_data.size)
@@ -169,8 +175,9 @@ def train_eval_offline(
   my_agent_arg_dict = {}
   for k in vars(agent_args):
       my_agent_arg_dict[k] = vars(agent_args)[k]
-  my_agent_arg_dict['behavior_ckpt_file'] = behavior_ckpt_file
-  my_agent_arg_dict['value_penalty'] = value_penalty
+  if 'brac_primal' in agent_module.__name__:
+      my_agent_arg_dict['behavior_ckpt_file'] = behavior_ckpt_file
+      my_agent_arg_dict['value_penalty'] = value_penalty
   print('agent_args:', my_agent_arg_dict)
   #agent = agent_module.Agent(**vars(agent_args))
   agent = agent_module.Agent(**my_agent_arg_dict)

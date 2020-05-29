@@ -14,15 +14,19 @@
 
 #!/bin/bash
 #ENV=walker2d-medium-v0
-ENV=flow-merge-random-v0
+ENV=carla-lane-v0
 
+#num samples=number of samples
+#total_train_steps=
 python train_offline.py \
-  --alsologtostderr --sub_dir=0 \
-  --env_name=$ENV --identifier="train_bc" \
-  --agent_name=bc \
-  --total_train_steps=300000 \
-  --n_train=1000000 \
-  --gin_bindings="train_eval_offline.model_params=((200, 200),)" \
-  --gin_bindings="train_eval_offline.batch_size=256" \
-  --gin_bindings="train_eval_offline.optimizers=(('adam', 5e-4),)"
+    --alsologtostderr \
+    --save_freq=1000 \
+    --sub_dir=0 \
+    --env_name=$ENV \
+    --identifier="train_conv_bc" \
+    --agent_name=conv_bc \
+    --total_train_steps=100000 \
+    --n_train=10000 \ 
+    --model_arch=0 \
+    --opt_params=0
 
