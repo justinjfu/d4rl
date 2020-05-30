@@ -19,6 +19,20 @@ def get_keys(h5file):
     return keys
 
 
+def filepath_from_url(dataset_url):
+    _, dataset_name = os.path.split(dataset_url)
+    dataset_filepath = os.path.join(DATASET_PATH, dataset_name)
+    return dataset_filepath
+
+
+def download_dataset_from_url(dataset_url):
+    dataset_filepath = filepath_from_url(dataset_url)
+    if not os.path.exists(dataset_filepath):
+        print('Downloading dataset:', dataset_url, 'to', dataset_filepath)
+        urllib.request.urlretrieve(dataset_url, dataset_filepath)
+    return dataset_filepath
+
+
 class OfflineEnv(gym.Env):
     """
     Base class for offline RL envs.

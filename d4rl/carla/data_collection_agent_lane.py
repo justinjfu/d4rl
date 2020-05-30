@@ -298,8 +298,8 @@ class RoamingAgent(Agent):
 
         :param vehicle: actor to apply to local planner logic onto
         """
-        vehicle=env.vehicle
-        follow_traffic_lights=env.follow_traffic_lights
+        vehicle = env.vehicle
+        follow_traffic_lights = env.follow_traffic_lights
         super(RoamingAgent, self).__init__(vehicle)
         self._proximity_threshold = 10.0  # meters
         self._state = AgentState.NAVIGATING

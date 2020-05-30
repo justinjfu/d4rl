@@ -51,6 +51,8 @@ DATASET_URLS = {
     'kitchen-mixed-v0' : 'http://rail.eecs.berkeley.edu/datasets/offline_rl/kitchen/kitchen_microwave_kettle_bottomburner_light-v0.hdf5',
     'carla-lane-v0': 'http://rail.eecs.berkeley.edu/datasets/offline_rl/carla/carla_lane_follow_flat-v0.hdf5',
     'carla-town-v0': 'http://rail.eecs.berkeley.edu/datasets/offline_rl/carla/carla_town_flat-v0.hdf5',
+    'carla-lane-dict-v0': 'http://rail.eecs.berkeley.edu/datasets/offline_rl/carla/carla_lane_follow-v0.hdf5',
+    'carla-town-dict-v0': 'http://rail.eecs.berkeley.edu/datasets/offline_rl/carla/carla_town-v0.hdf5',
 }
 
 REF_MIN_SCORE = {

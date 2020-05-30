@@ -79,7 +79,7 @@ def is_within_distance(target_location, current_location, orientation, max_dista
 
 def compute_distance(location_1, location_2):
     """
-    Euclidean distance between 3D points
+    Euclidean distance between 3D po-0.427844-0.427844ints
         :param location_1, location_2: 3D points
     """
     x = location_2.x - location_1.x
@@ -87,6 +87,44 @@ def compute_distance(location_1, location_2):
     z = location_2.z - location_1.z
     norm = np.linalg.norm([x, y, z]) + np.finfo(float).eps
     return norm
+
+
+class CustomGlobalRoutePlanner(GlobalRoutePlanner):
+    def __init__(self, dao):
+        super(CustomGlobalRoutePlanner, self).__init__(dao=dao)
+
+    def compute_direction_velocities(self, origin, velocity, destination):
+        node_list = super(CustomGlobalRoutePlanner, self)._path_search(origin=origin, destination=destination)
+
+        origin_xy = np.array([origin.x, origin.y])
+        velocity_xy = np.array([velocity.x, velocity.y])
+        first_node_xy = self._graph.nodes[node_list[0]]['vertex']
+        first_node_xy = np.array([first_node_xy[0], first_node_xy[1]])
+        target_direction_vector = first_node_xy - origin_xy
+        target_unit_vector = np.array(target_direction_vector) / np.linalg.norm(target_direction_vector)
+
+        vel_s = np.dot(velocity_xy, target_unit_vector)
+
+        unit_velocity = velocity_xy / (np.linalg.norm(velocity_xy) + 1e-8)
+        angle = np.arccos(np.clip(np.dot(unit_velocity, target_unit_vector), -1.0, 1.0))
+        vel_perp = np.linalg.norm(velocity_xy) * np.sin(angle)
+        return vel_s, vel_perp
+
+    def compute_distance(self, origin, destination):
+        node_list = super(CustomGlobalRoutePlanner, self)._path_search(origin=origin, destination=destination)
+        #print('Node list:', node_list)
+        first_node_xy = self._graph.nodes[node_list[0]]['vertex']
+        #print('Diff:', origin, first_node_xy)
+
+        #distance = 0.0
+        distances = []
+        distances.append(np.linalg.norm(np.array([origin.x, origin.y, 0.0]) - np.array(first_node_xy)))
+
+        for idx in range(len(node_list) - 1):
+            distances.append(super(CustomGlobalRoutePlanner, self)._distance_heuristic(node_list[idx], node_list[idx+1]))
+        #print('Distances:', distances)
+        #import pdb; pdb.set_trace()
+        return np.sum(distances)
 
 
 class CarlaSyncMode(object):
@@ -226,12 +264,13 @@ class CarlaEnv(object):
     """
     CARLA agent, we will wrap this in a proxy env to get a gym env
     """
-    def __init__(self, render=False, carla_port=2000, record=False, record_dir=None, args=None, record_vision=False, **kwargs):
+    def __init__(self, render=False, carla_port=2000, record=False, record_dir=None, args=None, record_vision=False, reward_type='lane_follow', **kwargs):
         self.render_display = render
         self.record_display = record
         print('[CarlaEnv] record_vision:', record_vision)
         self.record_vision = record_vision
         self.record_dir = record_dir
+        self.reward_type = reward_type
         self.vision_size = args['vision_size']
         self.vision_fov = args['vision_fov']
         self.changing_weather_speed = float(args['weather'])
@@ -351,6 +390,12 @@ class CarlaEnv(object):
         self.lights_list = self.actor_list.filter("*traffic_light*")
         self.object_list = self.actor_list.filter("*traffic.*")
 
+        # town nav
+        self.route_planner_dao = GlobalRoutePlannerDAO(self.map, sampling_resolution=0.1) 
+        self.route_planner = CustomGlobalRoutePlanner(self.route_planner_dao)
+        self.route_planner.setup()
+        self.target_location = carla.Location(x=-13.473097, y=134.311234, z=-0.010433)
+
         # roaming carla agent
         # self.agent = None
         # self.count = 0
@@ -383,14 +428,13 @@ class CarlaEnv(object):
     def reset_vehicle(self):
 
         if self.map.name == "Town04":
-            start_lane = -1 # np.random.choice([-1, -2, -3, -4])  # their positive values, not negative
+            self.start_lane = -1 # np.random.choice([-1, -2, -3, -4])  # their positive values, not negative
             start_x = 5.
             vehicle_init_transform = carla.Transform(carla.Location(x=start_x, y=0, z=0.1), carla.Rotation(yaw=-90))
         else:
             init_transforms = self.world.get_map().get_spawn_points()
             vehicle_init_transform = random.choice(init_transforms)
         
-        self.start_lane = start_lane
 
         if self.vehicle is None:  # then create the ego vehicle
             blueprint_library = self.world.get_blueprint_library()
@@ -619,7 +663,37 @@ class CarlaEnv(object):
         object_hazard, reward, object_id = self._is_object_hazard(vehicle, self.object_list)
         return object_hazard, reward
 
-    def get_reward(self, vehicle):
+    def goal_reaching_reward(self, vehicle):
+        # Now we will write goal_reaching_rewards
+        vehicle_location = vehicle.get_location()
+        vehicle_velocity = vehicle.get_velocity()
+
+        target_location = self.target_location
+
+        # This is the distance computation
+        dist = self.route_planner.compute_distance(vehicle_location, target_location)
+        vel_forward, vel_perp = self.route_planner.compute_direction_velocities(vehicle_location, vehicle_velocity, target_location)
+        
+        print('[GoalReachReward] VehLoc: %s Target: %s Dist: %s VelF:%s' % (str(vehicle_location), str(target_location), str(dist), str(vel_forward)))
+
+        #base_reward = -1.0 * (dist / 100.0) + 5.0
+        base_reward = vel_forward 
+        collided_done, collision_reward = self._get_collision_reward(vehicle)
+        traffic_light_done, traffic_light_reward = self._get_traffic_light_reward(vehicle)
+        object_collided_done, object_collided_reward = self._get_object_collided_reward(vehicle)
+        total_reward = base_reward + 100 * collision_reward # + 100 * traffic_light_reward + 100.0 * object_collided_reward
+        reward_dict = dict()
+        reward_dict['collision'] = collision_reward
+        reward_dict['traffic_light'] = traffic_light_reward
+        reward_dict['object_collision'] = object_collided_reward
+        reward_dict['base_reward'] = base_reward
+        done_dict = dict()
+        done_dict['collided_done'] = collided_done
+        done_dict['traffic_light_done'] = traffic_light_done
+        done_dict['object_collided_done'] = object_collided_done
+        return total_reward, reward_dict, done_dict
+
+    def lane_follow_reward(self, vehicle):
         # assume on highway
         vehicle_location = vehicle.get_location()
         vehicle_waypoint = self.map.get_waypoint(vehicle_location)
@@ -711,6 +785,8 @@ class CarlaEnv(object):
         reward_dict['traffic_light'] = traffic_light_reward
         reward_dict['object_collision'] = object_collided_reward
         reward_dict['base_reward'] = base_reward
+        reward_dict['base_reward_vel_s'] = vel_s
+        reward_dict['base_reward_vel_perp'] = vel_perp
         done_dict = dict()
         done_dict['collided_done'] = collided_done
         done_dict['traffic_light_done'] = traffic_light_done
@@ -782,6 +858,66 @@ class CarlaEnv(object):
             metadata.add_text("steer", str(steer))
             metadata.add_text("brake", str(brake))
             metadata.add_text("lights", traffic_light_color)
+
+            # acceleration
+            acceleration = self.vehicle.get_acceleration()
+            metadata.add_text("acceleration_x", str(acceleration.x))
+            metadata.add_text("acceleration_y", str(acceleration.y))
+            metadata.add_text("acceleration_z", str(acceleration.z))
+            # angular velocity
+            angular_velocity = self.vehicle.get_angular_velocity()
+            metadata.add_text("angular_velocity_x", str(angular_velocity.x))
+            metadata.add_text("angular_velocity_y", str(angular_velocity.y))
+            metadata.add_text("angular_velocity_z", str(angular_velocity.z))
+            # location
+            location = self.vehicle.get_location()
+            metadata.add_text("location_x", str(location.x))
+            metadata.add_text("location_y", str(location.y))
+            metadata.add_text("location_z", str(location.z))
+            # rotation
+            rotation = self.vehicle.get_transform().rotation
+            metadata.add_text("rotation_pitch", str(rotation.pitch))
+            metadata.add_text("rotation_yaw", str(rotation.yaw))
+            metadata.add_text("rotation_roll", str(rotation.roll))
+            forward_vector = rotation.get_forward_vector()
+            metadata.add_text("forward_vector_x", str(forward_vector.x))
+            metadata.add_text("forward_vector_y", str(forward_vector.y))
+            metadata.add_text("forward_vector_z", str(forward_vector.z))
+            # velocity
+            velocity = self.vehicle.get_velocity()
+            metadata.add_text("velocity_x", str(velocity.x))
+            metadata.add_text("velocity_y", str(velocity.y))
+            metadata.add_text("velocity_z", str(velocity.z))
+            # weather
+            metadata.add_text("weather_cloudiness ", str(self.weather.weather.cloudiness))
+            metadata.add_text("weather_precipitation", str(self.weather.weather.precipitation))
+            metadata.add_text("weather_precipitation_deposits", str(self.weather.weather.precipitation_deposits))
+            metadata.add_text("weather_wind_intensity", str(self.weather.weather.wind_intensity))
+            metadata.add_text("weather_fog_density", str(self.weather.weather.fog_density))
+            metadata.add_text("weather_wetness", str(self.weather.weather.wetness))
+            metadata.add_text("weather_sun_azimuth_angle", str(self.weather.weather.sun_azimuth_angle))
+            # settings
+            metadata.add_text("settings_map", self.map.name)
+            metadata.add_text("settings_vision_size", str(self.vision_size))
+            metadata.add_text("settings_vision_fov", str(self.vision_fov))
+            metadata.add_text("settings_changing_weather_speed", str(self.changing_weather_speed))
+            metadata.add_text("settings_multiagent", str(self.multiagent))
+            # traffic lights
+            metadata.add_text("traffic_lights_color", "UNLABELED")
+            metadata.add_text("reward", str(reward))
+
+            ## Add in reward dict
+            for key in reward_dict:
+                metadata.add_text("reward_" + str(key), str(reward_dict[key]))
+            
+            for key in done_dict:
+                metadata.add_text("done_" + str(key), str(done_dict[key]))
+
+            ## Save the target location as well
+            metadata.add_text('target_location_x', str(self.target_location.x))
+            metadata.add_text('target_location_y', str(self.target_location.y))
+            metadata.add_text('target_location_z', str(self.target_location.z))
+
             im.save(image_name, "PNG", pnginfo=metadata)
 
         self.count += 1
@@ -791,7 +927,14 @@ class CarlaEnv(object):
         done = False
         if done:
             print("Episode success: I've reached the episode horizon ({}).".format(self.max_episode_steps))
-        reward, reward_dict, done_dict = self.get_reward(self.vehicle)
+
+        if self.reward_type=='lane_follow':
+            reward, reward_dict, done_dict = self.lane_follow_reward(self.vehicle)
+        elif self.reward_type=='goal_reaching':
+            reward, reward_dict, done_dict = self.goal_reaching_reward(self.vehicle)
+        else:
+            raise ValueError('unknown reward type:', self.reward_type)
+
         info = reward_dict
         info.update(done_dict)
         done = False
@@ -813,7 +956,8 @@ class CarlaEnv(object):
 
 
 class CarlaObsDictEnv(OfflineEnv):
-    def __init__(self, carla_args=None, carla_port=2000, render_images=False, **kwargs):
+    def __init__(self, carla_args=None, carla_port=2000, reward_type='lane_follow', render_images=False, **kwargs):
+        self._wrapped_env = CarlaEnv(carla_port=carla_port, args=carla_args, reward_type=reward_type, record_vision=render_images)
         print('[CarlaObsDictEnv] render_images:', render_images)
         self._wrapped_env = CarlaEnv(carla_port=carla_port, args=carla_args, record_vision=render_images)
         self.action_space = self._wrapped_env.action_space
@@ -882,8 +1026,8 @@ class CarlaObsDictEnv(OfflineEnv):
 
 
 class CarlaObsEnv(OfflineEnv):
-    def __init__(self, carla_args=None, carla_port=2000, render_images=False, **kwargs):
-        self._wrapped_env = CarlaEnv(carla_port=carla_port, args=carla_args, record_vision=render_images)
+    def __init__(self, carla_args=None, carla_port=2000, reward_type='lane_follow', render_images=False, **kwargs):
+        self._wrapped_env = CarlaEnv(carla_port=carla_port, args=carla_args, reward_type=reward_type, record_vision=render_images)
         self.action_space = self._wrapped_env.action_space
         self.observation_space = self._wrapped_env.observation_space
         self.observation_size = int(np.prod(self._wrapped_env.observation_space.shape))

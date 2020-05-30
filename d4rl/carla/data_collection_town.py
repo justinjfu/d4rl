@@ -99,11 +99,12 @@ class CustomGlobalRoutePlanner(GlobalRoutePlanner):
 
     def compute_distance(self, origin, destination):
         node_list = super(CustomGlobalRoutePlanner, self)._path_search(origin=origin, destination=destination)
-        distance = 0.0
+        #distance = 0.0
+        distances = []
         for idx in range(len(node_list) - 1):
-            distance += (super(CustomGlobalRoutePlanner, self)._distance_heuristic(node_list[idx], node_list[idx+1]))
-        # print ('Distance: ', distance)
-        return distance
+            distances.append(super(CustomGlobalRoutePlanner, self)._distance_heuristic(node_list[idx], node_list[idx+1]))
+        print('Distances:', distances)
+        return np.sum(distance)
 
 class CarlaSyncMode(object):
     """
