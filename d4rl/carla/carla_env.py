@@ -113,7 +113,7 @@ class CustomGlobalRoutePlanner(GlobalRoutePlanner):
     def compute_distance(self, origin, destination):
         node_list = super(CustomGlobalRoutePlanner, self)._path_search(origin=origin, destination=destination)
         #print('Node list:', node_list)
-        first_node_xy = self._graph.nodes[node_list[0]]['vertex']
+        first_node_xy = self._graph.nodes[node_list[1]]['vertex']
         #print('Diff:', origin, first_node_xy)
 
         #distance = 0.0
