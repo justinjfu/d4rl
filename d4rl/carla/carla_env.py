@@ -674,7 +674,7 @@ class CarlaEnv(object):
         dist = self.route_planner.compute_distance(vehicle_location, target_location)
         vel_forward, vel_perp = self.route_planner.compute_direction_velocities(vehicle_location, vehicle_velocity, target_location)
         
-        print('[GoalReachReward] VehLoc: %s Target: %s Dist: %s VelF:%s' % (str(vehicle_location), str(target_location), str(dist), str(vel_forward)))
+        #print('[GoalReachReward] VehLoc: %s Target: %s Dist: %s VelF:%s' % (str(vehicle_location), str(target_location), str(dist), str(vel_forward)))
 
         #base_reward = -1.0 * (dist / 100.0) + 5.0
         base_reward = vel_forward 
@@ -766,12 +766,14 @@ class CarlaEnv(object):
 
         # not algorithm's fault, but the simulator sometimes throws the car in the air wierdly
         # usually in initial few frames, which can be ignored
+        """
         if vehicle_velocity.z > 1. and self.count < 20:
             print("Episode done: vertical velocity too high ({}), usually a simulator glitch (frame {})".format(vehicle_velocity.z, self.count))
             done = True
         if vehicle_location.z > 0.5 and self.count < 20:
             print("Episode done: vertical velocity too high ({}), usually a simulator glitch (frame {})".format(vehicle_location.z, self.count))
             done = True
+        """
 
         ## Add rewards for collision and optionally traffic lights
         vehicle_location = vehicle.get_location()
