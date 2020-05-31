@@ -15,13 +15,11 @@
 #!/bin/bash
 VALUE_PENALTY=True
 DIVERGENCE=kl
-# ENV=walker2d-medium-v0
-ENV=carla-lane-v0
+#ENV=carla-lane-v0
+ENV=carla-town-v0
 DATA=example
-# B_CKPT=$HOME/tmp/offlinerl/learn/$ENV/train_bc/bc/0/0/agent_behavior
-# B_CKPT=/data/doodad_results/merge-random/learn/flow-merge-random-v0/train_bc/bc/0/0/agent_behavior
-#B_CKPT=/hdd/home/justinfu/tmp/offlinerl/learn/flow-merge-random-v0/train_bc/bc/0/0/agent_behavior
-B_CKPT=/hdd/home/justinfu/tmp/offlinerl/learn/carla-lane-v0/train_conv_bc/conv_bc/0/0/agent_behavior
+#B_CKPT=/hdd/home/justinfu/tmp/offlinerl/learn/carla-lane-v0/train_conv_bc/conv_bc/0/0/agent_behavior
+B_CKPT=/hdd/home/justinfu/tmp/offlinerl/learn/carla-town-v0/train_conv_bc/conv_bc/0/0/agent_behavior
 
 python train_offline.py \
   --alsologtostderr --sub_dir=auto \

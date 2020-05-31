@@ -81,7 +81,7 @@ register(
     kwargs={
         'ref_min_score': 0.0,
         'ref_max_score': 1.0,
-        'dataset_url': 'http://rail.eecs.berkeley.edu/datasets/offline_rl/carla/carla_town_flat-v0.hdf5',
+        'dataset_url': 'http://rail.eecs.berkeley.edu/datasets/offline_rl/carla/carla_town_subsamp_flat-v0.hdf5',
         'reward_type': 'goal_reaching',
         'carla_args': dict(
             vision_size=48,
@@ -105,7 +105,7 @@ register(
     kwargs={
         'ref_min_score': 0.0,
         'ref_max_score': 1.0,
-        'dataset_url': 'http://rail.eecs.berkeley.edu/datasets/offline_rl/carla/carla_town-v0.hdf5',
+        'dataset_url': 'http://rail.eecs.berkeley.edu/datasets/offline_rl/carla/carla_town_subsamp-v0.hdf5',
         'reward_type': 'goal_reaching',
         'carla_args': dict(
             vision_size=48,

@@ -14,7 +14,7 @@
 
 #!/bin/bash
 #ENV=walker2d-medium-v0
-ENV=carla-lane-v0
+ENV=carla-town-v0
 
 #num samples=number of samples
 #total_train_steps=
