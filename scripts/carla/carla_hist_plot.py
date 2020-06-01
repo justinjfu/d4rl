@@ -13,9 +13,11 @@ from matplotlib.colors import Normalize
 
 
 def plot_lines():
-    env_name = 'carla-town-dict-v0'
+    env_name = 'carla-town-v0'
     #dataset = d4rl.get_dataset_key(env_name)
     locations = d4rl.get_dataset_key(env_name, 'infos/location')
+    shape = locations.shape
+    print('Shape:', locations.shape[0])
 
     #N = 1200000
     #locations = dataset['infos/location'][:N]
@@ -30,8 +32,9 @@ def plot_lines():
         #if terminals[i] or dist_term:
         if dist_term or cntr >= 5000:
             print(i, locations[i])
+            offset = np.random.randn(3) * 0.5
             if len(obs_arr) > 0:
-                obs_arr = np.array(obs_arr) 
+                obs_arr = (np.array(obs_arr) + offset )
                 x = obs_arr[:,0]
                 y = obs_arr[:,1]
                 xs.append(x)
@@ -41,19 +44,19 @@ def plot_lines():
         else:
             obs_arr.append(locations[i])
 
-
-    #plt.figure(figsize=(640, 480))
+    print('# trajs:', len(xs))
+    plt.figure()
     plt.figure()
     for (xarr, yarr) in zip(xs, ys):
         plt.plot(xarr, yarr, lw=0.1)
     plt.axis('off')
 
-    goal = np.array([13.473097, 134.311234, -0.010433])
-    goal_x = [goal[0]]
-    goal_y = [goal[1]]
-    plt.scatter(goal_x, goal_y, marker='o')
+    #goal = np.array([13.473097, 134.311234, -0.010433])
+    #goal_x = [goal[0]]
+    #goal_y = [goal[1]]
+    #plt.scatter(goal_x, goal_y, marker='o')
 
-    plt.savefig(env_name+'.png', transparent=True, bbox_inches='tight', pad_inches=0)
+    plt.savefig(env_name+'.png', transparent=True, bbox_inches='tight', pad_inches=0, dpi=600)
     print('fig saved!')
 
 
