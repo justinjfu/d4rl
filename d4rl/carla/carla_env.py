@@ -414,15 +414,17 @@ class CarlaEnv(object):
         self.count = 0
 
     def reset(self):
-        self.reset_vehicle()
-        self.world.tick()
-        self.reset_other_vehicles()
-        self.world.tick()
-        self.count = 0
+        #self.reset_vehicle()
+        #self.world.tick()
+        #self.reset_other_vehicles()
+        #self.world.tick()
+        #self.count = 0
 
         # get obs:
         for _ in range(5):
-            obs, _, _, _ = self.step()
+            self.world.tick()
+            #obs, _, _, _ = self.step()
+        obs, _, _, _ = self.step()
         return obs
     
     def reset_vehicle(self):
@@ -434,6 +436,7 @@ class CarlaEnv(object):
         else:
             init_transforms = self.world.get_map().get_spawn_points()
             vehicle_init_transform = random.choice(init_transforms)
+            #print('MyInitTransform', vehicle_init_transform)
         
 
         if self.vehicle is None:  # then create the ego vehicle
@@ -472,6 +475,9 @@ class CarlaEnv(object):
         else:
             init_transforms = self.world.get_map().get_spawn_points()
             init_transforms = np.random.choice(init_transforms, num_vehicles)
+            #print('OtherInitTransforms:')
+            #for transf in init_transforms:
+            #    print(transf)
 
         # --------------
         # Spawn vehicles

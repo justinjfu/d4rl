@@ -56,6 +56,24 @@ DATASET_URLS = {
 }
 
 REF_MIN_SCORE = {
+    'maze2d-open-v0' : 0.01 ,
+    'maze2d-umaze-v1' : 23.85 ,
+    'maze2d-medium-v1' : 13.13 ,
+    'maze2d-large-v1' : 6.7 ,
+    'maze2d-open-dense-v0' : 11.17817 ,
+    'maze2d-umaze-dense-v1' : 68.537689 ,
+    'maze2d-medium-dense-v1' : 44.264742 ,
+    'maze2d-large-dense-v1' : 30.569041 ,
+    'minigrid-fourrooms-v0' : 0.01442 ,
+    'minigrid-fourrooms-random-v0' : 0.01442 ,
+    'pen-human-v0' : 96.262799 ,
+    'pen-cloned-v0' : 96.262799 ,
+    'pen-expert-v0' : 96.262799 ,
+    'hammer-human-v0' : -274.856578 ,
+    'hammer-cloned-v0' : -274.856578 ,
+    'hammer-expert-v0' : -274.856578 ,
+    'relocate-human-v0' : -6.425911 ,
+    'relocate-cloned-v0' : -6.425911 ,
     'relocate-expert-v0' : -6.425911 ,
     'door-human-v0' : -56.512833 ,
     'door-cloned-v0' : -56.512833 ,
@@ -84,6 +102,12 @@ REF_MIN_SCORE = {
     'kitchen-complete-v0' : 0.0 ,
     'kitchen-partial-v0' : 0.0 ,
     'kitchen-mixed-v0' : 0.0 ,
+    'flow-ring-random-v0' : -165.22 ,
+    'flow-ring-controller-v0' : -165.22 ,
+    'flow-merge-random-v0' : 118.67993 ,
+    'flow-merge-controller-v0' : 118.67993 ,
+    'carla-lane-v0': -0.8503839912088142,
+    'carla-town-v0': -122.228455,
 }
 
 REF_MAX_SCORE = {
@@ -133,4 +157,10 @@ REF_MAX_SCORE = {
     'kitchen-complete-v0' : 4.0 ,
     'kitchen-partial-v0' : 4.0 ,
     'kitchen-mixed-v0' : 4.0 ,
+    'flow-ring-random-v0' : 24.42 ,
+    'flow-ring-controller-v0' : 24.42 ,
+    'flow-merge-random-v0' : 330.03179 ,
+    'flow-merge-controller-v0' : 330.03179 ,
+    'carla-lane-v0': 1023.5784385429523,
+    'carla-town-v0': -64.62967840318221,
 }
