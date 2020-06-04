@@ -677,8 +677,13 @@ class CarlaEnv(object):
         target_location = self.target_location
 
         # This is the distance computation
-        dist = self.route_planner.compute_distance(vehicle_location, target_location)
-        vel_forward, vel_perp = self.route_planner.compute_direction_velocities(vehicle_location, vehicle_velocity, target_location)
+        try:
+            dist = self.route_planner.compute_distance(vehicle_location, target_location)
+            vel_forward, vel_perp = self.route_planner.compute_direction_velocities(vehicle_location, vehicle_velocity, target_location)
+        except TypeError:
+            # Weird bug where the graph disappears
+            vel_forward = 0
+            vel_perp = 0
         
         #print('[GoalReachReward] VehLoc: %s Target: %s Dist: %s VelF:%s' % (str(vehicle_location), str(target_location), str(dist), str(vel_forward)))
 
@@ -800,7 +805,6 @@ class CarlaEnv(object):
         done_dict['traffic_light_done'] = traffic_light_done
         done_dict['object_collided_done'] = object_collided_done
         done_dict['base_done'] = done
-        # print ('Reward: ', reward_dict, vel_s)
         return total_reward, reward_dict, done_dict
     
     def _simulator_step(self, action, traffic_light_color):
