@@ -8,18 +8,21 @@ import d4rl.infos
 
 try:
     import d4rl.flow
-except ImportError:
+except ImportError as e:
     print('Warning: Flow failed to import')
+    print(e)
 
 try:
     import d4rl.kitchen
-except ImportError:
+except ImportError as e:
     print('Warning: FrankaKitchen failed to import. Install the adept_envs package.')
+    print(e)
 
 try:
     import d4rl.carla
-except ImportError:
+except ImportError as e:
     print('Warning: Carla failed to import')
+    print(e)
 
 
 def get_dataset(env_name):

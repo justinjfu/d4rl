@@ -31,7 +31,7 @@ def main():
             if done:
                 break
         ravg.append(returns)
-        print('n:',n, returns, ' mean:',np.mean(ravg))
+        print(n, t, returns, ' mean:',np.mean(ravg))
     print('%s Average returns (%d ep): %f' % (args.env_name, args.num_episodes, np.mean(ravg)))
 
 if __name__ == "__main__":
