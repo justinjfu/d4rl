@@ -14,14 +14,14 @@
 
 #!/bin/bash
 #ENV=walker2d-medium-v0
-ENV=carla-town-v0
+ENV=carla-lane-v0
 
 #num samples=number of samples
 #total_train_steps=
 python train_offline.py \
     --alsologtostderr \
     --save_freq=1000 \
-    --sub_dir=0 \
+    --sub_dir=1 \
     --env_name=$ENV \
     --identifier="train_conv_bc" \
     --agent_name=conv_bc \
